@@ -1,0 +1,77 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SkyOps – Airline Operations</title>
+<style>
+:root{--bg:#0f1720;--card:#17222e;--line:#263545;--fg:#e6edf3;--mut:#8b9bab;--acc:#f5a524;--ok:#3fb950;--bad:#f85149}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 system-ui,sans-serif;background:var(--bg);color:var(--fg)}
+header{padding:16px 20px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+h1{margin:0;font-size:20px;letter-spacing:.5px}h1 span{color:var(--acc)}
+nav{display:flex;gap:4px;flex-wrap:wrap;padding:10px 20px;border-bottom:1px solid var(--line)}
+nav button{background:none;border:1px solid transparent;color:var(--mut);padding:6px 12px;border-radius:6px;cursor:pointer}
+nav button.on{color:var(--fg);border-color:var(--line);background:var(--card)}
+main{padding:20px;max-width:1100px;margin:auto}.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+form{display:flex;flex-wrap:wrap;gap:8px;align-items:end}label{display:flex;flex-direction:column;font-size:12px;color:var(--mut);gap:2px}
+input,select{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:7px 9px}
+button.b{background:var(--acc);color:#111;border:0;border-radius:6px;padding:7px 12px;font-weight:600;cursor:pointer}
+button.s{background:none;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:4px 8px;cursor:pointer;font-size:12px}
+button.s:hover{border-color:var(--acc)}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--mut);font-weight:500;font-size:12px}.wrap{overflow-x:auto}.tag{padding:2px 8px;border-radius:99px;font-size:12px;background:var(--line)}
+.tag.ok{background:#173b22;color:var(--ok)}.tag.bad{background:#3d1818;color:var(--bad)}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);padding:10px 16px;border-radius:8px;background:var(--card);border:1px solid var(--line);display:none}
+pre{white-space:pre-wrap;font-size:12px;color:var(--mut)}
+</style></head><body>
+<header><h1>Sky<span>Ops</span> · Airline Operations</h1><button class="s" onclick="resetAll()">Reset demo data</button></header>
+<nav id="tabs"></nav><main id="view"></main><div id="toast"></div>
+<script>
+let S={},tab="flights";
+const tabs={flights:"Flights",reservations:"Reservations",passengers:"Passengers",aircraft:"Aircraft",employees:"Crew",cargo:"Cargo",report:"Report",demo:"Run model demo",log:"Activity"};
+const api=async(u,m="GET",b)=>{const r=await fetch(u,{method:m,headers:{"Content-Type":"application/json"},body:b?JSON.stringify(b):undefined});const j=await r.json();if(!r.ok){toast(j.error,1);throw j}return j};
+const toast=(t,bad)=>{const e=document.getElementById("toast");e.textContent=t;e.style.color=bad?"var(--bad)":"var(--ok)";e.style.display="block";clearTimeout(e._t);e._t=setTimeout(()=>e.style.display="none",2500)};
+const by=(k,id)=>S[k].find(x=>x.id==id)||{};
+const st=s=>`<span class="tag ${/cancel|needs/.test(s)?"bad":/board|checked|departed|active|delivered/.test(s)?"ok":""}">${s}</span>`;
+const opts=(k,f)=>S[k].map(x=>`<option value="${x.id}">${f(x)}</option>`).join("");
+const apOpts=()=>S.airports.map(a=>`<option>${a.code}</option>`).join("");
+const fd=e=>Object.fromEntries(new FormData(e.target));
+async function load(){S=await api("/api/state");render()}
+async function act(u,b,m="POST"){await api(u,m,b);toast("Done");load()}
+async function add(e,k){e.preventDefault();await api("/api/"+k,"POST",fd(e));toast("Saved");load()}
+async function resetAll(){if(confirm("Reset all data?")){await api("/api/reset","POST");load()}}
+function render(){
+ document.getElementById("tabs").innerHTML=Object.entries(tabs).map(([k,v])=>`<button class="${k==tab?"on":""}" onclick="tab='${k}';render()">${v}</button>`).join("");
+ document.getElementById("view").innerHTML=V[tab]();if(tab=="report")loadReport();
+}
+const tbl=(h,rows)=>`<div class="card wrap"><table><tr>${h.map(x=>`<th>${x}</th>`).join("")}</tr>${rows.join("")||`<tr><td colspan=${h.length}>Nothing yet</td></tr>`}</table></div>`;
+const del=(k,id)=>`<button class="s" onclick="if(confirm('Delete?'))act('/api/${k}/${id}',null,'DELETE')">✕</button>`;
+const V={
+flights:()=>`<div class="card"><form onsubmit="add(event,'flights')">
+<label>Number<input name=number required placeholder="PK302"></label><label>From<select name=origin>${apOpts()}</select></label>
+<label>To<select name=dest>${apOpts()}</select></label><label>Departure<input type=datetime-local name=departure required></label>
+<label>Minutes<input type=number name=minutes value=90 style="width:80px"></label><label>Aircraft<select name=aircraft_id>${opts("aircraft",a=>a.reg+" "+a.type)}</select></label>
+<button class=b>Add flight</button></form></div>`+tbl(["Flight","Route","Departure","Aircraft","Crew","Status","Actions"],S.flights.map(f=>`<tr>
+<td><b>${f.number}</b></td><td>${f.origin} → ${f.dest}</td><td>${f.departure.replace("T"," ")}</td><td>${by("aircraft",f.aircraft_id).reg||"-"}</td>
+<td>${f.crew.map(c=>by("employees",c).name).join(", ")||"-"}<br><select id=cr${f.id}>${opts("employees",e=>e.name+" ("+e.role+")")}</select> <button class=s onclick="act('/api/flights/${f.id}/crew',{employee_id:cr${f.id}.value})">Assign</button></td>
+<td>${st(f.status)}</td><td><button class=s onclick="act('/api/flights/${f.id}/delay',{minutes:prompt('Delay minutes',60)})">Delay</button>
+<button class=s onclick="const a=prompt('Divert to airport code');a&&act('/api/flights/${f.id}/divert',{airport:a.toUpperCase()})">Divert</button>
+<button class=s onclick="act('/api/flights/${f.id}/depart')">Depart</button><button class=s onclick="confirm('Cancel flight?')&&act('/api/flights/${f.id}/cancel')">Cancel</button> ${del("flights",f.id)}</td></tr>`)),
+reservations:()=>`<div class="card"><form onsubmit="add(event,'reservations')">
+<label>Passenger<select name=passenger_id>${opts("passengers",p=>p.name)}</select></label><label>Flight<select name=flight_id>${opts("flights",f=>f.number+" "+f.origin+"→"+f.dest)}</select></label>
+<label>Seat<input name=seat placeholder="3A" style="width:70px"></label><button class=b>Book</button></form></div>`+tbl(["#","Passenger","Flight","Seat","Bags","Status","Actions"],S.reservations.map(r=>`<tr>
+<td>${r.id}</td><td>${by("passengers",r.passenger_id).name}</td><td>${by("flights",r.flight_id).number}</td><td>${r.seat||"-"}</td>
+<td>${r.bags.map(b=>b.tag+" "+b.weight+"kg").join("<br>")||"-"}</td><td>${st(r.status)}</td>
+<td><button class=s onclick="act('/api/reservations/${r.id}/checkin')">Check in</button><button class=s onclick="act('/api/reservations/${r.id}/bag',{weight:prompt('Bag weight kg',20)})">+ Bag</button>
+<button class=s onclick="act('/api/reservations/${r.id}/board')">Board</button><button class=s onclick="act('/api/reservations/${r.id}/cancel')">Cancel</button> ${del("reservations",r.id)}</td></tr>`)),
+passengers:()=>`<div class="card"><form onsubmit="add(event,'passengers')"><label>Name<input name=name required></label><label>Passport no.<input name=doc_number></label>
+<label>Passport expiry<input type=date name=doc_expiry></label><button class=b>Add passenger</button></form></div>`+tbl(["Name","Document","Expiry",""],S.passengers.map(p=>`<tr><td>${p.name}</td><td>${p.doc_number||"-"}</td><td>${p.doc_expiry||"-"}</td><td>${del("passengers",p.id)}</td></tr>`)),
+aircraft:()=>`<div class="card"><form onsubmit="add(event,'aircraft')"><label>Registration<input name=reg required></label><label>Type<input name=type required placeholder="A320"></label>
+<label>Rows<input type=number name=rows value=10 style="width:70px"></label><label>Seat letters<input name=letters value="ABCD" style="width:80px"></label>
+<label>Cargo kg<input type=number name=cargo_capacity value=1500 style="width:90px"></label><button class=b>Add aircraft</button></form></div>`+tbl(["Reg","Type","Seats","Cargo kg","Status",""],S.aircraft.map(a=>`<tr><td>${a.reg}</td><td>${a.type}</td><td>${a.seats.length}</td><td>${a.cargo_capacity}</td><td>${st(a.status)}</td><td>${del("aircraft",a.id)}</td></tr>`)),
+employees:()=>`<div class="card"><form onsubmit="add(event,'employees')"><label>Name<input name=name required></label><label>Role<select name=role><option>captain</option><option>first officer</option><option>cabin crew</option><option>engineer</option><option>ground staff</option></select></label>
+<label>Qualified types (comma)<input name=quals placeholder="A320,ATR72"></label><button class=b>Add crew</button></form></div>`+tbl(["Name","Role","Qualifications","Duty left",""],S.employees.map(e=>`<tr><td>${e.name}</td><td>${e.role}</td><td>${e.quals.join(", ")||"-"}</td><td>${600-e.duty_minutes} min</td><td>${del("employees",e.id)}</td></tr>`)),
+cargo:()=>`<div class="card"><form onsubmit="add(event,'cargo')"><label>AWB<input name=awb required></label><label>Weight kg<input type=number name=weight required style="width:90px"></label>
+<label>Description<input name=description></label><label>Kind<select name=kind><option>general</option><option>temperature</option><option>dangerous</option></select></label>
+<label>Flight<select name=flight_id>${opts("flights",f=>f.number)}</select></label><button class=b>Accept cargo</button></form></div>`+tbl(["AWB","Kg","Description","Kind","Flight",""],S.cargo.map(c=>`<tr><td>${c.awb}</td><td>${c.weight}</td><td>${c.description}</td><td>${c.kind}</td><td>${by("flights",c.flight_id).number}</td><td>${del("cargo",c.id)}</td></tr>`)),
+report:()=>`<div id=rep class=card>Loading…</div>`,
+demo:()=>`<div class=card><p>Runs <code>main()</code> from your original class file.</p><button class=b onclick="api('/api/demo').then(r=>out.textContent=r.output)">Run</button><pre id=out></pre></div>`,
+log:()=>`<div class=card><pre>${S.log.join("\n")}</pre></div>`};
+async function loadReport(){const r=await api("/api/report");rep.innerHTML=`<table><tr><th>Flight</th><th>Status</th><th>Pax</th><th>Load</th><th>Crew gaps</th></tr>${r.map(x=>`<tr><td>${x.number}</td><td>${st(x.status)}</td><td>${x.pax}/${x.capacity}</td><td>${x.load_kg}/${x.cargo_capacity} kg ${x.overweight?st("overweight"):""}</td><td>${x.crew_gaps.join(", ")||st("ok")}</td></tr>`).join("")}</table>`}
+load();
+</script></body></html>
